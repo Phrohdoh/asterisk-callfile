@@ -1,3 +1,5 @@
 # `asterisk-callfile`
 
-TODO
+## LICENSE
+
+MIT
