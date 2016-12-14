@@ -4,6 +4,10 @@
 
 MIT
 
+## Status
+
+Development of this project is on hold but you are more than welcome to contribute!
+
 ## Supporting this project
 
 If you would like to financially support this project please do the following:
