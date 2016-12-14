@@ -1,3 +1,10 @@
+extern crate mktemp;
+use mktemp::Temp;
+
+use std::fs::File;
+use std::path::PathBuf;
+use std::io::Write;
+
 pub struct CallerId {
     pub num: String,
     pub name: Option<String>,
@@ -11,16 +18,19 @@ impl CallerId {
         }
     }
 
-    pub fn to_string(self) -> String {
+    pub fn to_text(&self) -> String {
         let mut ret = String::new();
 
-        if let Some(name) = self.name {
+        if let Some(ref name) = self.name {
             ret += &format!("'{}' ", name);
         }
 
         ret + &format!("<{}>", self.num)
     }
 }
+
+static DEFAULT_SPOOL_DIR: &'static str = "/var/spool/asterisk/outgoing";
+static DEFAULT_TMP_DIR: &'static str = "/tmp";
 
 pub struct CallFile {
     pub channel: String,
@@ -31,12 +41,19 @@ pub struct CallFile {
     pub account: Option<String>,
 }
 
-impl CallFile {
-    pub fn to_string(self) -> String {
-        let mut ret = format!("Channel: {}\r\n", self.channel).to_owned();
-        ret += &format!("CallerID: \"{}\"\r\n", self.caller_id.to_string());
+pub enum SpoolError {
+    FailedToCreateTmpFile,
+    FailedToOpenTmpFileForWriting,
+    FailedToWriteToTmpFile,
+    FailedToMoveToSpool,
+}
 
-        if let Some(t) = self.wait_time_secs {
+impl CallFile {
+    fn to_text(&self) -> String {
+        let mut ret = format!("Channel: {}\r\n", self.channel).to_owned();
+        ret += &format!("CallerID: \"{}\"\r\n", self.caller_id.to_text());
+
+        if let Some(ref t) = self.wait_time_secs {
             ret += &format!("WaitTime: {}\r\n", t);
         }
 
@@ -48,11 +65,46 @@ impl CallFile {
             ret += &format!("RetryTime: {}\r\n", rt);
         }
 
-        if let Some(a) = self.account {
+        if let Some(ref a) = self.account {
             ret += &format!("Account: {}\r\n", a);
         }
 
         ret
+    }
+
+    fn _spool(self, tmp_dir: PathBuf, mut spool_dir: PathBuf) -> Result<(), SpoolError> {
+        let text = self.to_text();
+        let tmp_file = match Temp::new_file_in(tmp_dir.as_path()) {
+            Ok(tmp) => tmp,
+            Err(_) => return Err(SpoolError::FailedToCreateTmpFile),
+        };
+
+        let path_buf = tmp_file.to_path_buf();
+        let file_name = path_buf.clone().file_name();
+        let mut file = match File::open(path_buf) {
+            Ok(f) => f,
+            Err(_) => return Err(SpoolError::FailedToOpenTmpFileForWriting),
+        };
+
+        match file.write_all(text.as_bytes()) {
+            Err(_) => return Err(SpoolError::FailedToWriteToTmpFile),
+            _ => {}
+        };
+
+        let file_name = match file_name {
+            Some(n) => n,
+            None => return Err(SpoolError::FailedToMoveToSpool),
+        };
+
+        let new_file_name = spool_dir.push(file_name);
+        println!("{:?}", new_file_name);
+        Ok(())
+
+        // std::fs::rename(path_buf,)
+    }
+
+    pub fn spool(self) -> Result<(), SpoolError> {
+        Ok(())
     }
 }
 
@@ -71,7 +123,7 @@ mod tests {
             account: None,
         };
 
-        assert_eq!(cf.to_string(),
+        assert_eq!(cf.to_text(),
                    "Channel: SIP/just-chickens/1234567890\r\nCallerID: \"<0987654321>\"\r\n");
     }
 
@@ -86,7 +138,7 @@ mod tests {
             account: None,
         };
 
-        assert_eq!(cf.to_string(),
+        assert_eq!(cf.to_text(),
                    "Channel: SIP/just-chickens/1234567890\r\nCallerID: \"'Johnny' \
                     <0987654321>\"\r\n");
     }
